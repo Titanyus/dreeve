@@ -14,12 +14,7 @@ export default class Chat {
         this.placeholderIdle = this.textInput.getAttribute('data-placeholder-idle');
         this.placeholderProcessing = this.textInput.getAttribute('data-placeholder-processing');
 
-        this.commands = {};
-        try {
-            this.commands = JSON.parse(this.chatWrapper.getAttribute('data-chat-commands') || '{}');
-        } catch (error) {
-            console.error('Failed to parse chat commands:', error);
-        }
+        this.commands = JSON.parse(this.chatWrapper.getAttribute('data-chat-commands') || '{}');
         this.autoCompleteJS = null;
 
         this.basePath = basePath();

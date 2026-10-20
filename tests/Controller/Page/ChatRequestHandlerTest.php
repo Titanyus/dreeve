@@ -22,8 +22,6 @@ use NeuronAI\Agent\Agent;
 use NeuronAI\Agent\AgentInterface;
 use NeuronAI\Chat\Messages\AssistantMessage;
 use NeuronAI\Testing\FakeAIProvider;
-use PHPUnit\Framework\Attributes\AllowMockObjectsWithoutExpectations;
-use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\MockObject\Stub;
 use Spatie\Snapshots\MatchesSnapshots;
 use Symfony\Component\Form\FormFactoryInterface;
@@ -32,7 +30,6 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Twig\Environment;
 
-#[AllowMockObjectsWithoutExpectations]
 class ChatRequestHandlerTest extends AdminWebTestCase
 {
     use MatchesSnapshots;
@@ -41,24 +38,8 @@ class ChatRequestHandlerTest extends AdminWebTestCase
      * @var Stub&AgentInterface
      */
     private Stub $neuronAIAgent;
-    /**
-     * @var MockObject&ChatRepository
-     */
-    private MockObject $chatRepository;
 
     public function testRender(): void
-    {
-        $this->enableAssistant(true);
-
-        $this->client->request('GET', '/chat');
-
-        $this->assertResponseIsSuccessful();
-        $this->assertResponseNotHasHeader('X-Dreeve-Cache');
-        $this->assertResponseHeaderSame('Cache-Control', 'max-age=0, must-revalidate, no-store, private');
-        $this->assertMatchesHtmlSnapshot((string) $this->client->getResponse()->getContent());
-    }
-
-    public function testRenderEscapesChatCommands(): void
     {
         $this->enableAssistant(true, commands: [
             ['command' => 'review-cardio', 'message' => "Don't forget that commute activities are part of my training"],
@@ -67,13 +48,9 @@ class ChatRequestHandlerTest extends AdminWebTestCase
         $this->client->request('GET', '/chat');
 
         $this->assertResponseIsSuccessful();
-
-        $content = (string) $this->client->getResponse()->getContent();
-        $this->assertStringContainsString(
-            'data-chat-commands="&#x7B;&quot;&#x5C;&#x2F;review-cardio&quot;&#x3A;&quot;Don&#x27;t&#x20;forget&#x20;that&#x20;commute&#x20;activities&#x20;are&#x20;part&#x20;of&#x20;my&#x20;training&quot;&#x7D;"',
-            $content,
-        );
-        $this->assertStringNotContainsString("data-chat-commands='", $content);
+        $this->assertResponseNotHasHeader('X-Dreeve-Cache');
+        $this->assertResponseHeaderSame('Cache-Control', 'max-age=0, must-revalidate, no-store, private');
+        $this->assertMatchesHtmlSnapshot((string) $this->client->getResponse()->getContent());
     }
 
     public function testItIsNotFoundWhenTheAssistantIsDisabled(): void
@@ -126,13 +103,15 @@ class ChatRequestHandlerTest extends AdminWebTestCase
 
     public function testClearChat(): void
     {
-        $requestHandler = $this->buildRequestHandler(
-            true
-        );
-
-        $this->chatRepository
+        $chatRepository = $this->createMock(ChatRepository::class);
+        $chatRepository
             ->expects($this->once())
             ->method('clear');
+
+        $requestHandler = $this->buildRequestHandler(
+            aiUIEnabled: true,
+            chatRepository: $chatRepository,
+        );
 
         $this->assertEquals(
             204,
@@ -142,19 +121,20 @@ class ChatRequestHandlerTest extends AdminWebTestCase
 
     public function testClearChatAINotEnabled(): void
     {
-        $this->chatRepository
+        $chatRepository = $this->createMock(ChatRepository::class);
+        $chatRepository
             ->expects($this->never())
             ->method('clear');
 
         $requestHandler = $this->buildRequestHandler(
-            false
+            aiUIEnabled: false,
+            chatRepository: $chatRepository,
         );
 
         $this->expectException(NotFoundHttpException::class);
         $requestHandler->clearChat();
     }
 
-    #[AllowMockObjectsWithoutExpectations]
     public function testChatSse(): void
     {
         $chatRepository = new DbalChatRepository(
@@ -192,7 +172,6 @@ class ChatRequestHandlerTest extends AdminWebTestCase
         $this->assertStringContainsString('<strong>Hello</strong>', $content);
     }
 
-    #[AllowMockObjectsWithoutExpectations]
     public function testChatSseOnError(): void
     {
         $chatRepository = new DbalChatRepository(
@@ -231,22 +210,22 @@ class ChatRequestHandlerTest extends AdminWebTestCase
         $this->assertInstanceOf(AddChatMessage::class, $dispatchedCommands[0]);
     }
 
-    #[AllowMockObjectsWithoutExpectations]
     public function testChatSseAINotEnabled(): void
     {
         $requestHandler = $this->buildRequestHandler(
-            false
+            aiUIEnabled: false,
+            chatRepository: $this->createStub(ChatRepository::class),
         );
 
         $this->expectException(NotFoundHttpException::class);
         $requestHandler->chatSse(new Request(query: ['message' => 'What is my FTP?']));
     }
 
-    private function buildRequestHandler(bool $aiUIEnabled): ChatRequestHandler
+    private function buildRequestHandler(bool $aiUIEnabled, ChatRepository $chatRepository): ChatRequestHandler
     {
         return new ChatRequestHandler(
             neuronAIAgent: $this->neuronAIAgent,
-            chatRepository: $this->chatRepository,
+            chatRepository: $chatRepository,
             commandBus: $this->getContainer()->get(CommandBus::class),
             twig: $this->getContainer()->get(Environment::class),
             settingsRepository: $this->buildSettingsRepository($aiUIEnabled),
@@ -297,6 +276,5 @@ class ChatRequestHandlerTest extends AdminWebTestCase
         parent::setUp();
 
         $this->neuronAIAgent = $this->createStub(AgentInterface::class);
-        $this->chatRepository = $this->createMock(ChatRepository::class);
     }
 }
