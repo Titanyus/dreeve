@@ -58,6 +58,24 @@ class ChatRequestHandlerTest extends AdminWebTestCase
         $this->assertMatchesHtmlSnapshot((string) $this->client->getResponse()->getContent());
     }
 
+    public function testRenderEscapesChatCommands(): void
+    {
+        $this->enableAssistant(true, commands: [
+            ['command' => 'review-cardio', 'message' => "Don't forget that commute activities are part of my training"],
+        ]);
+
+        $this->client->request('GET', '/chat');
+
+        $this->assertResponseIsSuccessful();
+
+        $content = (string) $this->client->getResponse()->getContent();
+        $this->assertStringContainsString(
+            'data-chat-commands="&#x7B;&quot;&#x5C;&#x2F;review-cardio&quot;&#x3A;&quot;Don&#x27;t&#x20;forget&#x20;that&#x20;commute&#x20;activities&#x20;are&#x20;part&#x20;of&#x20;my&#x20;training&quot;&#x7D;"',
+            $content,
+        );
+        $this->assertStringNotContainsString("data-chat-commands='", $content);
+    }
+
     public function testItIsNotFoundWhenTheAssistantIsDisabled(): void
     {
         $this->enableAssistant(false);
@@ -67,7 +85,10 @@ class ChatRequestHandlerTest extends AdminWebTestCase
         $this->assertResponseStatusCodeSame(404);
     }
 
-    private function enableAssistant(bool $enabled): void
+    /**
+     * @param array<int, array{command: string, message: string}> $commands
+     */
+    private function enableAssistant(bool $enabled, array $commands = []): void
     {
         $this->getContainer()->get(DbalSettingsRepository::class)->saveGroup(SettingsGroup::INTEGRATIONS, [
             'ai' => [
@@ -77,6 +98,9 @@ class ChatRequestHandlerTest extends AdminWebTestCase
                 'configuration' => [
                     'key' => 'my-key',
                     'model' => 'cool-model',
+                ],
+                'agent' => [
+                    'commands' => $commands,
                 ],
             ],
         ]);
